@@ -29,15 +29,6 @@ export OpenAI__ApiKey="..."
 - `OpenAI__Model` — модель OpenAI (по умолчанию `gpt-5.4`).
 - `SystemPromptFile` — путь к файлу с системным промптом личности; перечитывается при каждом ответе, так что правки применяются без перезапуска.
 
-## Запуск (локально)
-
-Системный `dotnet` на этой машине — версии 7.x, нужен .NET 8 SDK:
-
-```bash
-cd DiscordChatBot
-~/.dotnet8/dotnet run
-```
-
 ## Деплой на VPS (systemd)
 
 Файлы в `deploy/` рассчитаны на VPS с уже установленным .NET 8 SDK/Runtime.
