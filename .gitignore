@@ -5,6 +5,7 @@ riderModule.iml
 /_ReSharper.Caches/
 .idea/
 .DS_Store
+.claude/
 
 # Secrets - real values are injected via environment variables, never committed
 DiscordChatBot/appsettings.Production.json
