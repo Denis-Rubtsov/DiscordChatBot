@@ -50,18 +50,29 @@ class DiscordBotService
         return Task.CompletedTask;
     }
 
-    private async Task OnMessageReceived(SocketMessage rawMessage)
+    // Discord.Net awaits this handler's Task directly on the gateway's message-processing
+    // loop; anything slower than a couple of seconds here delays heartbeats and can get the
+    // connection dropped ("A MessageReceived handler is blocking the gateway task"). The AI
+    // call routinely takes longer than that, so it must run on a detached task, never awaited
+    // by this handler.
+    private Task OnMessageReceived(SocketMessage rawMessage)
     {
-        if (rawMessage is not SocketUserMessage message) return;
-        if (message.Author.Id == _client.CurrentUser.Id || message.Author.IsBot) return;
+        if (rawMessage is not SocketUserMessage message) return Task.CompletedTask;
+        if (message.Author.Id == _client.CurrentUser.Id || message.Author.IsBot) return Task.CompletedTask;
 
         var isDirectMessage = message.Channel is IDMChannel;
         var isMentioned = message.MentionedUsers.Any(u => u.Id == _client.CurrentUser.Id);
         var isActiveChannel = _activeChannels.ContainsKey(message.Channel.Id);
-        if (!isDirectMessage && !isMentioned && !isActiveChannel) return;
+        if (!isDirectMessage && !isMentioned && !isActiveChannel) return Task.CompletedTask;
 
         if (isMentioned) _activeChannels.TryAdd(message.Channel.Id, 0);
 
+        _ = Task.Run(() => HandleMessageAsync(message));
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleMessageAsync(SocketUserMessage message)
+    {
         var content = message.Content;
         foreach (var mentionedUser in message.MentionedUsers.Where(u => u.Id == _client.CurrentUser.Id))
             content = content.Replace(mentionedUser.Mention, "", StringComparison.OrdinalIgnoreCase);
@@ -69,10 +80,14 @@ class DiscordBotService
 
         if (content.Length == 0) content = "мяу";
 
+        _logger.LogInformation("Обрабатываю сообщение от {Author} в канале {ChannelId}", message.Author.Username, message.Channel.Id);
+
         try
         {
-            var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.Id, message.Author.GlobalName ?? message.Author.Username, content);
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.Id, message.Author.GlobalName ?? message.Author.Username, content, cts.Token);
             await SendInChunksAsync(message.Channel, reply);
+            _logger.LogInformation("Ответил в канале {ChannelId}", message.Channel.Id);
         }
         catch (Exception ex)
         {

@@ -56,7 +56,7 @@ class CatGirlAiService
         _logger = logger;
     }
 
-    public async Task<string> ReplyAsync(ulong channelId, ulong authorId, string authorName, string userMessage)
+    public async Task<string> ReplyAsync(ulong channelId, ulong authorId, string authorName, string userMessage, CancellationToken cancellationToken = default)
     {
         var relationship = _relationships.GetOrCreate(authorId, authorName);
 
@@ -76,7 +76,7 @@ class CatGirlAiService
 
         var options = new ChatCompletionOptions { Temperature = 1.0f, ResponseFormat = ReplyFormat };
 
-        ChatCompletion completion = await _client.CompleteChatAsync(messages, options);
+        ChatCompletion completion = await _client.CompleteChatAsync(messages, options, cancellationToken);
         var (reply, note) = ParseReply(completion.Content[0].Text);
 
         RememberExchange(channelId, authorName, userMessage, reply);
