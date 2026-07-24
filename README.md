@@ -68,4 +68,6 @@ cd /root/DiscordChatBot && bash deploy/deploy.sh
 
 (или удалённо: `ssh <host> 'cd DiscordChatBot && bash deploy/deploy.sh'`).
 
+`deploy.sh` бэкапит и восстанавливает `out/appsettings.json` вокруг `dotnet publish`, так что реальные секреты не затираются плейсхолдерами из репозитория. Исключение: если коммит добавляет новый ключ конфига (как `OpenAI:RealtimeModel`) — его придётся один раз дописать в `out/appsettings.json` на сервере вручную, старый бэкап этого ключа не содержит.
+
 Логи: `journalctl -u discordchatbot -f`.
