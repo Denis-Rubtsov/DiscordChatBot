@@ -27,5 +27,12 @@ if [ -n "$SECRETS_BACKUP" ]; then
     rm -f "$SECRETS_BACKUP"
 fi
 
+# libdave.so не публикуется MSBuild'ом (это не .NET-сборка) — докачиваем, если
+# его вдруг нет в out/ (например, самый первый деплой на новую машину).
+if [ ! -f "$OUT_DIR/libdave.so" ]; then
+    curl -sSL -o /tmp/libdave.zip https://github.com/discord/libdave/releases/download/v1.1.1/cpp/libdave-Linux-X64-boringssl.zip
+    unzip -o -j /tmp/libdave.zip 'lib/libdave.so' -d "$OUT_DIR/"
+fi
+
 systemctl restart "$SERVICE_NAME"
 systemctl status "$SERVICE_NAME" --no-pager -l

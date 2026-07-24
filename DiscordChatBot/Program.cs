@@ -28,7 +28,11 @@ var discordClient = new DiscordSocketClient(new DiscordSocketConfig
         | GatewayIntents.GuildMessages
         | GatewayIntents.DirectMessages
         | GatewayIntents.MessageContent
-        | GatewayIntents.GuildVoiceStates
+        | GatewayIntents.GuildVoiceStates,
+    // Discord требует E2EE (DAVE) для голосовых каналов с марта 2026; без этого
+    // ConnectAsync к голосовому каналу закрывается с ошибкой 4017. Требует
+    // native libdave.so рядом с бинарником (см. README/deploy).
+    EnableVoiceDaveEncryption = true
 });
 
 var relationships = new RelationshipStore(relationshipsFile);

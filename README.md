@@ -12,7 +12,7 @@ Discord-бот с личностью милой кошкодевочки (Мур
 
 **Голосовой чат.** `!войс` в текстовом канале — бот заходит в тот голосовой канал, где сейчас находится написавший, и ведёт живой голосовой разговор через OpenAI Realtime API (`gpt-realtime-2.1` по умолчанию): слушает всех говорящих, распознаёт речь и отвечает голосом, без отдельных команд на "начать говорить" — определение реплик (voice activity detection) на стороне модели. `!развойс` — выйти. Голос настраивается через `OpenAI__RealtimeVoice` (по умолчанию `shimmer`; варианты — alloy, ash, ballad, coral, echo, sage, shimmer, verse, marin, cedar).
 
-Требует нативных `libopus`/`libsodium` на хосте (см. деплой ниже) и права **Connect**/**Speak** для бота в голосовых каналах на сервере.
+Требует нативных `libopus`/`libsodium`/`libdave` на хосте (см. деплой ниже) и права **Connect**/**Speak** для бота в голосовых каналах на сервере. С марта 2026 Discord требует E2EE (протокол DAVE) для голосовых соединений — без `libdave.so` рядом с бинарником подключение к голосовому каналу закрывается ошибкой 4017 "E2EE/DAVE protocol required".
 
 > Эта фича реализована по документированному API, но живое качество голоса (задержки, естественность реплик, обрезание речи при перебивании) я проверить сам не могу — нет доступа к голосовому каналу Discord. Проверяй на слух и присылай, что не так — донастрою.
 
@@ -44,11 +44,22 @@ export OpenAI__ApiKey="..."
 **Первоначальная настройка (один раз, на самой VPS, от root):**
 
 ```bash
-apt-get install -y libopus0 libsodium23  # нужно для голосового чата (!войс)
+# нужно для голосового чата (!войс)
+apt-get install -y libopus0 libsodium23
+# apt-пакеты дают только версионированные .so (libopus.so.0 и т.п.), а .NET P/Invoke
+# ищет безверсийные имена — без симлинков голосовые вызовы падают с DllNotFoundException
+ln -sf /usr/lib/x86_64-linux-gnu/libopus.so.0 /usr/lib/x86_64-linux-gnu/libopus.so
+ln -sf /usr/lib/x86_64-linux-gnu/libsodium.so.23 /usr/lib/x86_64-linux-gnu/libsodium.so
+ldconfig
 
 git clone https://github.com/Denis-Rubtsov/DiscordChatBot.git /root/DiscordChatBot
 cd /root/DiscordChatBot
 dotnet publish DiscordChatBot/DiscordChatBot.csproj -c Release -o out
+
+# libdave (обязательное с 03/2026 E2EE-шифрование голоса) — готового apt-пакета нет,
+# берём прекомпилированный .so прямо с GitHub-релиза discord/libdave
+curl -sSL -o /tmp/libdave.zip https://github.com/discord/libdave/releases/download/v1.1.1/cpp/libdave-Linux-X64-boringssl.zip
+unzip -o -j /tmp/libdave.zip 'lib/libdave.so' -d out/
 
 # заполни реальными значениями (этот файл не в git — редактируется только на сервере);
 # RelationshipsFile стоит указать вне out/, например /data/relationships.json,
