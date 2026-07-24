@@ -17,6 +17,8 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 var discordToken = RequireConfig(config, "Discord:Token", "TOKEN_PLACEHOLDER");
 var openAiApiKey = RequireConfig(config, "OpenAI:ApiKey", "API_KEY_PLACEHOLDER");
 var openAiModel = config["OpenAI:Model"] ?? "gpt-5.4";
+var realtimeModel = config["OpenAI:RealtimeModel"] ?? "gpt-realtime-2.1";
+var realtimeVoice = config["OpenAI:RealtimeVoice"] ?? "shimmer";
 var promptFile = config["SystemPromptFile"];
 var relationshipsFile = config["RelationshipsFile"] ?? "relationships.json";
 
@@ -26,11 +28,13 @@ var discordClient = new DiscordSocketClient(new DiscordSocketConfig
         | GatewayIntents.GuildMessages
         | GatewayIntents.DirectMessages
         | GatewayIntents.MessageContent
+        | GatewayIntents.GuildVoiceStates
 });
 
 var relationships = new RelationshipStore(relationshipsFile);
 var ai = new CatGirlAiService(openAiApiKey, openAiModel, promptFile, relationships, loggerFactory.CreateLogger<CatGirlAiService>());
-var bot = new DiscordBotService(discordClient, ai, loggerFactory.CreateLogger<DiscordBotService>());
+var voice = new VoiceChatService(openAiApiKey, realtimeModel, realtimeVoice, loggerFactory.CreateLogger<VoiceChatService>());
+var bot = new DiscordBotService(discordClient, ai, voice, loggerFactory.CreateLogger<DiscordBotService>());
 
 await bot.StartAsync(discordToken);
 
