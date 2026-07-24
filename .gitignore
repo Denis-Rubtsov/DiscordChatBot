@@ -11,3 +11,6 @@ riderModule.iml
 DiscordChatBot/appsettings.Production.json
 DiscordChatBot/appsettings.Local.json
 .env
+
+# Runtime data (persisted relationship memory), not repo content
+DiscordChatBot/relationships.json

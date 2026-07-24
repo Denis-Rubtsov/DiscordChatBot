@@ -18,6 +18,7 @@ var discordToken = RequireConfig(config, "Discord:Token", "TOKEN_PLACEHOLDER");
 var openAiApiKey = RequireConfig(config, "OpenAI:ApiKey", "API_KEY_PLACEHOLDER");
 var openAiModel = config["OpenAI:Model"] ?? "gpt-5.4";
 var promptFile = config["SystemPromptFile"];
+var relationshipsFile = config["RelationshipsFile"] ?? "relationships.json";
 
 var discordClient = new DiscordSocketClient(new DiscordSocketConfig
 {
@@ -27,7 +28,8 @@ var discordClient = new DiscordSocketClient(new DiscordSocketConfig
         | GatewayIntents.MessageContent
 });
 
-var ai = new CatGirlAiService(openAiApiKey, openAiModel, promptFile, loggerFactory.CreateLogger<CatGirlAiService>());
+var relationships = new RelationshipStore(relationshipsFile);
+var ai = new CatGirlAiService(openAiApiKey, openAiModel, promptFile, relationships, loggerFactory.CreateLogger<CatGirlAiService>());
 var bot = new DiscordBotService(discordClient, ai, loggerFactory.CreateLogger<DiscordBotService>());
 
 await bot.StartAsync(discordToken);

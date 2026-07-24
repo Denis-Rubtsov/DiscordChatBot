@@ -71,7 +71,7 @@ class DiscordBotService
 
         try
         {
-            var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.GlobalName ?? message.Author.Username, content);
+            var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.Id, message.Author.GlobalName ?? message.Author.Username, content);
             await SendInChunksAsync(message.Channel, reply);
         }
         catch (Exception ex)
