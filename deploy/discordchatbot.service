@@ -1,0 +1,17 @@
+[Unit]
+Description=DiscordChatBot - Discord bot with catgirl personality
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Замени <VPS_USER> и путь ниже под свою VPS перед `sudo cp ... /etc/systemd/system/`
+User=<VPS_USER>
+WorkingDirectory=/home/<VPS_USER>/DiscordChatBot/DiscordChatBot/bin/publish
+EnvironmentFile=/home/<VPS_USER>/discordchatbot.env
+ExecStart=/usr/bin/dotnet /home/<VPS_USER>/DiscordChatBot/DiscordChatBot/bin/publish/DiscordChatBot.dll
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

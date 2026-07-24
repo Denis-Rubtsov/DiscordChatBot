@@ -29,7 +29,7 @@ export OpenAI__ApiKey="..."
 - `OpenAI__Model` — модель OpenAI (по умолчанию `gpt-5.4`).
 - `SystemPromptFile` — путь к файлу с системным промптом личности; перечитывается при каждом ответе, так что правки применяются без перезапуска.
 
-## Запуск
+## Запуск (локально)
 
 Системный `dotnet` на этой машине — версии 7.x, нужен .NET 8 SDK:
 
@@ -37,3 +37,34 @@ export OpenAI__ApiKey="..."
 cd DiscordChatBot
 ~/.dotnet8/dotnet run
 ```
+
+## Деплой на VPS (systemd)
+
+Файлы в `deploy/` рассчитаны на VPS с уже установленным .NET 8 SDK/Runtime.
+
+**Первоначальная настройка (один раз, на самой VPS):**
+
+```bash
+git clone https://github.com/Denis-Rubtsov/DiscordChatBot.git ~/DiscordChatBot
+cd ~/DiscordChatBot
+dotnet publish DiscordChatBot/DiscordChatBot.csproj -c Release -o DiscordChatBot/bin/publish
+
+mkdir -p ~/discordchatbot-data
+cp deploy/discordchatbot.env.example ~/discordchatbot.env
+# заполни ~/discordchatbot.env реальными Discord__Token / OpenAI__ApiKey
+
+sudo cp deploy/discordchatbot.service /etc/systemd/system/discordchatbot.service
+# замени <VPS_USER> на реального пользователя в скопированном unit-файле
+sudo systemctl daemon-reload
+sudo systemctl enable --now discordchatbot
+```
+
+**Обновление после пуша в main** — на VPS:
+
+```bash
+cd ~/DiscordChatBot && bash deploy/deploy.sh
+```
+
+(или это же можно вызвать удалённо через `ssh <host> 'cd DiscordChatBot && bash deploy/deploy.sh'`, если запускаешь деплой не с самой VPS).
+
+Логи: `journalctl -u discordchatbot -f`.
