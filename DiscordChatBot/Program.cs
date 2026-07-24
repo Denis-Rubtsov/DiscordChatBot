@@ -16,7 +16,7 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 
 var discordToken = RequireConfig(config, "Discord:Token", "TOKEN_PLACEHOLDER");
 var openAiApiKey = RequireConfig(config, "OpenAI:ApiKey", "API_KEY_PLACEHOLDER");
-var openAiModel = config["OpenAI:Model"] ?? "gpt-4o-mini";
+var openAiModel = config["OpenAI:Model"] ?? "gpt-5.4";
 var promptFile = config["SystemPromptFile"];
 
 var discordClient = new DiscordSocketClient(new DiscordSocketConfig

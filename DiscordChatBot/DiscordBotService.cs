@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Discord;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
@@ -9,6 +10,7 @@ class DiscordBotService
     private readonly DiscordSocketClient _client;
     private readonly CatGirlAiService _ai;
     private readonly ILogger<DiscordBotService> _logger;
+    private readonly ConcurrentDictionary<ulong, byte> _activeChannels = new();
 
     public DiscordBotService(DiscordSocketClient client, CatGirlAiService ai, ILogger<DiscordBotService> logger)
     {
@@ -55,7 +57,10 @@ class DiscordBotService
 
         var isDirectMessage = message.Channel is IDMChannel;
         var isMentioned = message.MentionedUsers.Any(u => u.Id == _client.CurrentUser.Id);
-        if (!isDirectMessage && !isMentioned) return;
+        var isActiveChannel = _activeChannels.ContainsKey(message.Channel.Id);
+        if (!isDirectMessage && !isMentioned && !isActiveChannel) return;
+
+        if (isMentioned) _activeChannels.TryAdd(message.Channel.Id, 0);
 
         var content = message.Content;
         foreach (var mentionedUser in message.MentionedUsers.Where(u => u.Id == _client.CurrentUser.Id))
@@ -66,11 +71,8 @@ class DiscordBotService
 
         try
         {
-            using (message.Channel.EnterTypingState())
-            {
-                var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.GlobalName ?? message.Author.Username, content);
-                await SendInChunksAsync(message.Channel, reply);
-            }
+            var reply = await _ai.ReplyAsync(message.Channel.Id, message.Author.GlobalName ?? message.Author.Username, content);
+            await SendInChunksAsync(message.Channel, reply);
         }
         catch (Exception ex)
         {

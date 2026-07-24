@@ -13,7 +13,7 @@ class CatGirlAiService
         "но всегда доброй. Если тебя спрашивают о чём-то по существу — отвечай полезно и по делу, но не теряй " +
         "кошачий характер речи. Пиши на русском языке, если собеседник не пишет на другом.";
 
-    private const int MaxHistoryMessages = 20;
+    private const int MaxHistoryMessages = 100;
 
     private readonly ChatClient _client;
     private readonly string? _promptFile;
