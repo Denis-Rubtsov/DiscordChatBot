@@ -1,16 +1,16 @@
 using System.Collections.Concurrent;
 using Discord;
 using Discord.Audio;
-using Discord.Audio.Streams;
 using Discord.WebSocket;
 using Microsoft.Extensions.Logging;
 using OpenAI.Realtime;
 
-// Bridges a Discord voice channel to the OpenAI Realtime API: decodes each speaking
-// member's Opus audio to PCM, downsamples 48kHz stereo -> 24kHz mono for the model,
-// and upsamples the model's 24kHz mono replies back to 48kHz stereo for Discord.
-// Server-side voice activity detection (RealtimeServerVadTurnDetection) drives turn-taking,
-// so there is no manual "is someone still talking" logic here.
+// Bridges a Discord voice channel to the OpenAI Realtime API: Discord.Net already hands each
+// speaking member's audio as decoded PCM (48kHz stereo) via StreamCreated, so we just
+// downsample it to 24kHz mono for the model, and upsample the model's 24kHz mono replies back
+// to 48kHz stereo for Discord's output stream. Server-side voice activity detection
+// (RealtimeServerVadTurnDetection) drives turn-taking, so there is no manual
+// "is someone still talking" logic here.
 class VoiceChatService
 {
     private const string Instructions =
@@ -51,11 +51,6 @@ class VoiceChatService
         // получить свой StreamCreated от Discord.Net, и если подписаться позже — этот вызов для
         // них больше не повторится за всю голосовую сессию, и их аудио никогда не долетит до модели.
         audioClient.StreamCreated += (userId, inStream) => OnUserStreamCreated(session, userId, inStream);
-        audioClient.StreamDestroyed += userId =>
-        {
-            if (session.UserDecoders.TryRemove(userId, out var decoder)) decoder.Dispose();
-            return Task.CompletedTask;
-        };
 
         var realtimeSession = await _realtimeClient.StartConversationSessionAsync(_realtimeModel, options: null, CancellationToken.None);
 
@@ -99,7 +94,6 @@ class VoiceChatService
         session.Cts.Cancel();
         try { await session.PumpTask; } catch { /* задача просто прервана отменой */ }
 
-        foreach (var decoder in session.UserDecoders.Values) decoder.Dispose();
         session.RealtimeSession?.Dispose();
         await session.AudioClient.StopAsync();
         await session.Channel.DisconnectAsync();
@@ -111,48 +105,46 @@ class VoiceChatService
         if (userId == session.Channel.Guild.CurrentUser.Id) return Task.CompletedTask;
 
         _logger.LogInformation("Начал слушать участника {UserId}", userId);
-
-        var sentBytes = 0L;
-        var sink = new PcmCaptureSink(async (buffer, offset, count, ct) =>
-        {
-            var mono24k = DownsampleStereo48kToMono24k(buffer, offset, count);
-            if (mono24k.Length > 0 && session.RealtimeSession is { } realtimeSession)
-            {
-                try
-                {
-                    await realtimeSession.SendInputAudioAsync(BinaryData.FromBytes(mono24k), ct);
-                    sentBytes += mono24k.Length;
-                    if (sentBytes % 200_000 < mono24k.Length)
-                        _logger.LogInformation("Отправлено в Realtime API уже {Bytes} байт от {UserId}", sentBytes, userId);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Не удалось отправить аудио в Realtime API");
-                }
-            }
-        });
-        var decoder = new OpusDecodeStream(sink);
-        session.UserDecoders[userId] = decoder;
-
-        _ = Task.Run(() => PumpUserAudioAsync(session, decoder, inStream));
+        _ = Task.Run(() => PumpUserAudioAsync(session, userId, inStream));
         return Task.CompletedTask;
     }
 
-    private async Task PumpUserAudioAsync(VoiceSession session, OpusDecodeStream decoder, AudioInStream inStream)
+    // AudioInStream из StreamCreated отдаёт уже декодированный Discord.Net'ом PCM (48kHz stereo
+    // 16-bit) — RTPFrame.Payload здесь не сырой Opus. Оборачивать его в свой OpusDecodeStream не
+    // нужно и неверно: тот класс не принимает заголовки от внешнего кода (WriteHeader на нём
+    // бросает "This stream does not accept headers" — это внутренний строительный блок, которым
+    // Discord.Net уже пользуется сам при создании этого самого стрима).
+    private async Task PumpUserAudioAsync(VoiceSession session, ulong userId, AudioInStream inStream)
     {
+        var sentBytes = 0L;
         try
         {
             while (!session.Cts.IsCancellationRequested)
             {
                 var frame = await inStream.ReadFrameAsync(session.Cts.Token);
-                decoder.WriteHeader(frame.Sequence, frame.Timestamp, frame.Missed);
-                await decoder.WriteAsync(frame.Payload, 0, frame.Payload.Length, session.Cts.Token);
+                if (frame.Missed || frame.Payload.Length == 0) continue;
+
+                var mono24k = DownsampleStereo48kToMono24k(frame.Payload, 0, frame.Payload.Length);
+                if (mono24k.Length > 0 && session.RealtimeSession is { } realtimeSession)
+                {
+                    try
+                    {
+                        await realtimeSession.SendInputAudioAsync(BinaryData.FromBytes(mono24k), session.Cts.Token);
+                        sentBytes += mono24k.Length;
+                        if (sentBytes % 200_000 < mono24k.Length)
+                            _logger.LogInformation("Отправлено в Realtime API уже {Bytes} байт от {UserId}", sentBytes, userId);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Не удалось отправить аудио в Realtime API");
+                    }
+                }
             }
         }
         catch (OperationCanceledException) { /* ожидаемо при выходе из канала */ }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Обрыв при чтении голоса участника");
+            _logger.LogWarning(ex, "Обрыв при чтении голоса участника {UserId}", userId);
         }
     }
 
@@ -273,7 +265,6 @@ class VoiceChatService
         public RealtimeSessionClient? RealtimeSession { get; set; }
         public AudioOutStream? DiscordOut { get; set; }
         public CancellationTokenSource Cts { get; }
-        public ConcurrentDictionary<ulong, OpusDecodeStream> UserDecoders { get; } = new();
         public Task PumpTask { get; set; } = Task.CompletedTask;
 
         public VoiceSession(SocketVoiceChannel channel, IAudioClient audioClient, CancellationTokenSource cts)
@@ -282,23 +273,5 @@ class VoiceChatService
             AudioClient = audioClient;
             Cts = cts;
         }
-    }
-
-    // Терминальный приёмник PCM для OpusDecodeStream: просто перенаправляет декодированные байты дальше.
-    private class PcmCaptureSink : AudioOutStream
-    {
-        private readonly Func<byte[], int, int, CancellationToken, Task> _onWrite;
-
-        public PcmCaptureSink(Func<byte[], int, int, CancellationToken, Task> onWrite)
-        {
-            _onWrite = onWrite;
-        }
-
-        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
-            => _onWrite(buffer, offset, count, cancellationToken);
-
-        public override Task FlushAsync(CancellationToken cancellationToken) => Task.CompletedTask;
-
-        public override Task ClearAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }
