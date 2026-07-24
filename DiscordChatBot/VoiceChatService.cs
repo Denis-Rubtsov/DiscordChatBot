@@ -42,6 +42,21 @@ class VoiceChatService
         _logger.LogInformation("Подключаюсь к голосовому каналу {Channel} на сервере {Guild}", channel.Name, channel.Guild.Name);
 
         var audioClient = await channel.ConnectAsync(selfDeaf: false);
+        var cts = new CancellationTokenSource();
+        var session = new VoiceSession(channel, audioClient, cts);
+        _sessions[guildId] = session;
+
+        // Регистрируем обработчики СРАЗУ после подключения, а не после настройки Realtime-сессии:
+        // пока идут сетевые вызовы к OpenAI (пара секунд), уже говорящие участники успевают
+        // получить свой StreamCreated от Discord.Net, и если подписаться позже — этот вызов для
+        // них больше не повторится за всю голосовую сессию, и их аудио никогда не долетит до модели.
+        audioClient.StreamCreated += (userId, inStream) => OnUserStreamCreated(session, userId, inStream);
+        audioClient.StreamDestroyed += userId =>
+        {
+            if (session.UserDecoders.TryRemove(userId, out var decoder)) decoder.Dispose();
+            return Task.CompletedTask;
+        };
+
         var realtimeSession = await _realtimeClient.StartConversationSessionAsync(_realtimeModel, options: null, CancellationToken.None);
 
         await realtimeSession.ConfigureConversationSessionAsync(new RealtimeConversationSessionOptions
@@ -68,20 +83,11 @@ class VoiceChatService
             }
         }, CancellationToken.None);
 
-        var discordOut = audioClient.CreatePCMStream(AudioApplication.Voice, bitrate: null, bufferMillis: 1000, packetLoss: 5);
-        var cts = new CancellationTokenSource();
-
-        var session = new VoiceSession(channel, audioClient, realtimeSession, discordOut, cts);
-        _sessions[guildId] = session;
-
-        audioClient.StreamCreated += (userId, inStream) => OnUserStreamCreated(session, userId, inStream);
-        audioClient.StreamDestroyed += userId =>
-        {
-            if (session.UserDecoders.TryRemove(userId, out var decoder)) decoder.Dispose();
-            return Task.CompletedTask;
-        };
+        session.RealtimeSession = realtimeSession;
+        session.DiscordOut = audioClient.CreatePCMStream(AudioApplication.Voice, bitrate: null, bufferMillis: 1000, packetLoss: 5);
 
         session.PumpTask = Task.Run(() => PumpModelAudioToDiscordAsync(session));
+        _logger.LogInformation("Голосовая сессия полностью готова в {Channel}", channel.Name);
     }
 
     public async Task LeaveAsync(ulong guildId)
@@ -94,7 +100,7 @@ class VoiceChatService
         try { await session.PumpTask; } catch { /* задача просто прервана отменой */ }
 
         foreach (var decoder in session.UserDecoders.Values) decoder.Dispose();
-        session.RealtimeSession.Dispose();
+        session.RealtimeSession?.Dispose();
         await session.AudioClient.StopAsync();
         await session.Channel.DisconnectAsync();
         session.Cts.Dispose();
@@ -110,11 +116,11 @@ class VoiceChatService
         var sink = new PcmCaptureSink(async (buffer, offset, count, ct) =>
         {
             var mono24k = DownsampleStereo48kToMono24k(buffer, offset, count);
-            if (mono24k.Length > 0)
+            if (mono24k.Length > 0 && session.RealtimeSession is { } realtimeSession)
             {
                 try
                 {
-                    await session.RealtimeSession.SendInputAudioAsync(BinaryData.FromBytes(mono24k), ct);
+                    await realtimeSession.SendInputAudioAsync(BinaryData.FromBytes(mono24k), ct);
                     sentBytes += mono24k.Length;
                     if (sentBytes % 200_000 < mono24k.Length)
                         _logger.LogInformation("Отправлено в Realtime API уже {Bytes} байт от {UserId}", sentBytes, userId);
@@ -152,18 +158,22 @@ class VoiceChatService
 
     private async Task PumpModelAudioToDiscordAsync(VoiceSession session)
     {
+        // На момент вызова оба поля уже установлены в JoinAsync — метод запускается только после этого.
+        var realtimeSession = session.RealtimeSession!;
+        var discordOut = session.DiscordOut!;
+
         var receivedAudioBytes = 0L;
         var writtenBytes = 0L;
         try
         {
-            await foreach (var update in session.RealtimeSession.ReceiveUpdatesAsync(session.Cts.Token))
+            await foreach (var update in realtimeSession.ReceiveUpdatesAsync(session.Cts.Token))
             {
                 switch (update)
                 {
                     case RealtimeServerUpdateResponseOutputAudioDelta delta:
                         receivedAudioBytes += delta.Delta.ToArray().Length;
                         var stereo48k = UpsampleMono24kToStereo48k(delta.Delta.ToArray());
-                        await session.DiscordOut.WriteAsync(stereo48k, 0, stereo48k.Length, session.Cts.Token);
+                        await discordOut.WriteAsync(stereo48k, 0, stereo48k.Length, session.Cts.Token);
                         writtenBytes += stereo48k.Length;
                         break;
                     case RealtimeServerUpdateError error:
@@ -258,18 +268,18 @@ class VoiceChatService
     {
         public SocketVoiceChannel Channel { get; }
         public IAudioClient AudioClient { get; }
-        public RealtimeSessionClient RealtimeSession { get; }
-        public AudioOutStream DiscordOut { get; }
+        // Заполняются чуть позже конструктора (после настройки Realtime-сессии) — StreamCreated
+        // может успеть сработать раньше, поэтому оба поля nullable, а не readonly-параметры ctor.
+        public RealtimeSessionClient? RealtimeSession { get; set; }
+        public AudioOutStream? DiscordOut { get; set; }
         public CancellationTokenSource Cts { get; }
         public ConcurrentDictionary<ulong, OpusDecodeStream> UserDecoders { get; } = new();
         public Task PumpTask { get; set; } = Task.CompletedTask;
 
-        public VoiceSession(SocketVoiceChannel channel, IAudioClient audioClient, RealtimeSessionClient realtimeSession, AudioOutStream discordOut, CancellationTokenSource cts)
+        public VoiceSession(SocketVoiceChannel channel, IAudioClient audioClient, CancellationTokenSource cts)
         {
             Channel = channel;
             AudioClient = audioClient;
-            RealtimeSession = realtimeSession;
-            DiscordOut = discordOut;
             Cts = cts;
         }
     }
