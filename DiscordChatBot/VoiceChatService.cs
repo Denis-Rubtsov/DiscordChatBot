@@ -47,6 +47,7 @@ class VoiceChatService
         await realtimeSession.ConfigureConversationSessionAsync(new RealtimeConversationSessionOptions
         {
             Instructions = Instructions,
+            OutputModalities = { RealtimeOutputModality.Audio },
             AudioOptions = new RealtimeConversationSessionAudioOptions
             {
                 InputAudioOptions = new RealtimeConversationSessionInputAudioOptions
@@ -103,6 +104,9 @@ class VoiceChatService
     {
         if (userId == session.Channel.Guild.CurrentUser.Id) return Task.CompletedTask;
 
+        _logger.LogInformation("Начал слушать участника {UserId}", userId);
+
+        var sentBytes = 0L;
         var sink = new PcmCaptureSink(async (buffer, offset, count, ct) =>
         {
             var mono24k = DownsampleStereo48kToMono24k(buffer, offset, count);
@@ -111,6 +115,9 @@ class VoiceChatService
                 try
                 {
                     await session.RealtimeSession.SendInputAudioAsync(BinaryData.FromBytes(mono24k), ct);
+                    sentBytes += mono24k.Length;
+                    if (sentBytes % 200_000 < mono24k.Length)
+                        _logger.LogInformation("Отправлено в Realtime API уже {Bytes} байт от {UserId}", sentBytes, userId);
                 }
                 catch (Exception ex)
                 {
@@ -145,18 +152,43 @@ class VoiceChatService
 
     private async Task PumpModelAudioToDiscordAsync(VoiceSession session)
     {
+        var receivedAudioBytes = 0L;
+        var writtenBytes = 0L;
         try
         {
             await foreach (var update in session.RealtimeSession.ReceiveUpdatesAsync(session.Cts.Token))
             {
-                if (update is RealtimeServerUpdateResponseOutputAudioDelta delta)
+                switch (update)
                 {
-                    var stereo48k = UpsampleMono24kToStereo48k(delta.Delta.ToArray());
-                    await session.DiscordOut.WriteAsync(stereo48k, 0, stereo48k.Length, session.Cts.Token);
-                }
-                else if (update is RealtimeServerUpdateError error)
-                {
-                    _logger.LogWarning("Realtime API вернул ошибку: {Message}", error.Error.Message);
+                    case RealtimeServerUpdateResponseOutputAudioDelta delta:
+                        receivedAudioBytes += delta.Delta.ToArray().Length;
+                        var stereo48k = UpsampleMono24kToStereo48k(delta.Delta.ToArray());
+                        await session.DiscordOut.WriteAsync(stereo48k, 0, stereo48k.Length, session.Cts.Token);
+                        writtenBytes += stereo48k.Length;
+                        break;
+                    case RealtimeServerUpdateError error:
+                        _logger.LogWarning("Realtime API вернул ошибку: {Message}", error.Error.Message);
+                        break;
+                    case RealtimeServerUpdateInputAudioBufferSpeechStarted:
+                        _logger.LogInformation("Realtime: услышала начало речи");
+                        break;
+                    case RealtimeServerUpdateInputAudioBufferSpeechStopped:
+                        _logger.LogInformation("Realtime: услышала конец речи");
+                        break;
+                    case RealtimeServerUpdateResponseCreated:
+                        _logger.LogInformation("Realtime: начинает генерировать ответ");
+                        break;
+                    case RealtimeServerUpdateResponseDone:
+                        _logger.LogInformation("Realtime: ответ завершён, получено {Received} байт аудио, записано в Discord {Written} байт", receivedAudioBytes, writtenBytes);
+                        receivedAudioBytes = 0;
+                        writtenBytes = 0;
+                        break;
+                    case RealtimeServerUpdateSessionCreated:
+                        _logger.LogInformation("Realtime: сессия создана и сконфигурирована");
+                        break;
+                    default:
+                        _logger.LogInformation("Realtime: событие {Type}", update.GetType().Name);
+                        break;
                 }
             }
         }
