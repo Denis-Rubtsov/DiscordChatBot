@@ -31,31 +31,31 @@ export OpenAI__ApiKey="..."
 
 ## Деплой на VPS (systemd)
 
-Файлы в `deploy/` рассчитаны на VPS с уже установленным .NET 8 SDK/Runtime.
+Файлы в `deploy/` рассчитаны на VPS с уже установленным .NET 8 SDK/Runtime (тот же сервер и та же схема, что и у бота Vlk/WolfsQuotes: репозиторий в `/root`, публикация в поддиректорию `out/`, реальные секреты — прямо в `out/appsettings.json`, который никогда не коммитится).
 
-**Первоначальная настройка (один раз, на самой VPS):**
+**Первоначальная настройка (один раз, на самой VPS, от root):**
 
 ```bash
-git clone https://github.com/Denis-Rubtsov/DiscordChatBot.git ~/DiscordChatBot
-cd ~/DiscordChatBot
-dotnet publish DiscordChatBot/DiscordChatBot.csproj -c Release -o DiscordChatBot/bin/publish
+git clone https://github.com/Denis-Rubtsov/DiscordChatBot.git /root/DiscordChatBot
+cd /root/DiscordChatBot
+dotnet publish DiscordChatBot/DiscordChatBot.csproj -c Release -o out
 
-mkdir -p ~/discordchatbot-data
-cp deploy/discordchatbot.env.example ~/discordchatbot.env
-# заполни ~/discordchatbot.env реальными Discord__Token / OpenAI__ApiKey
+# заполни реальными значениями (этот файл не в git — редактируется только на сервере);
+# RelationshipsFile стоит указать вне out/, например /data/relationships.json,
+# чтобы не терялось при следующем dotnet publish
+$EDITOR out/appsettings.json
 
-sudo cp deploy/discordchatbot.service /etc/systemd/system/discordchatbot.service
-# замени <VPS_USER> на реального пользователя в скопированном unit-файле
-sudo systemctl daemon-reload
-sudo systemctl enable --now discordchatbot
+cp deploy/discordchatbot.service /etc/systemd/system/discordchatbot.service
+systemctl daemon-reload
+systemctl enable --now discordchatbot
 ```
 
 **Обновление после пуша в main** — на VPS:
 
 ```bash
-cd ~/DiscordChatBot && bash deploy/deploy.sh
+cd /root/DiscordChatBot && bash deploy/deploy.sh
 ```
 
-(или это же можно вызвать удалённо через `ssh <host> 'cd DiscordChatBot && bash deploy/deploy.sh'`, если запускаешь деплой не с самой VPS).
+(или удалённо: `ssh <host> 'cd DiscordChatBot && bash deploy/deploy.sh'`).
 
 Логи: `journalctl -u discordchatbot -f`.

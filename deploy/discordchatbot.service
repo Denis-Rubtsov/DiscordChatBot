@@ -1,17 +1,20 @@
 [Unit]
 Description=DiscordChatBot - Discord bot with catgirl personality
-After=network-online.target
-Wants=network-online.target
+After=network.target
 
 [Service]
-Type=simple
-# Замени <VPS_USER> и путь ниже под свою VPS перед `sudo cp ... /etc/systemd/system/`
-User=<VPS_USER>
-WorkingDirectory=/home/<VPS_USER>/DiscordChatBot/DiscordChatBot/bin/publish
-EnvironmentFile=/home/<VPS_USER>/discordchatbot.env
-ExecStart=/usr/bin/dotnet /home/<VPS_USER>/DiscordChatBot/DiscordChatBot/bin/publish/DiscordChatBot.dll
+WorkingDirectory=/root/DiscordChatBot
+ExecStart=/usr/bin/dotnet /root/DiscordChatBot/out/DiscordChatBot.dll
+
+# запуск от root (как и vlkbot.service, раз репозиторий в /root)
+User=root
+
 Restart=on-failure
 RestartSec=5
+
+# логирование
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target

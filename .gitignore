@@ -15,5 +15,5 @@ DiscordChatBot/appsettings.Local.json
 # Runtime data (persisted relationship memory), not repo content
 DiscordChatBot/relationships.json
 
-# Real deploy secrets on the VPS - only the .example template is committed
-deploy/discordchatbot.env
+# VPS publish output (real secrets live in out/appsettings.json there, never committed)
+out/
