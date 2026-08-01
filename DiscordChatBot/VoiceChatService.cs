@@ -64,10 +64,17 @@ class VoiceChatService
                 {
                     // PCM для Realtime API всегда 24kHz/16-bit/mono, Rate у формата read-only.
                     AudioFormat = new RealtimePcmAudioFormat(),
+                    // В шумном канале, где говорят без пауз, прерывание ответа речью означает,
+                    // что бота перебивают в ту же секунду, как он начал отвечать, и он вечно
+                    // молчит (live-тест: response.done с 0 байт аудио сразу после speech_started).
+                    // Поэтому ответ не прерываем, а VAD делаем менее дёрганым: выше порог и
+                    // длиннее пауза, после которой реплика считается законченной.
                     TurnDetection = new RealtimeServerVadTurnDetection
                     {
                         CreateResponseEnabled = true,
-                        InterruptResponseEnabled = true
+                        InterruptResponseEnabled = false,
+                        DetectionThreshold = 0.6f,
+                        SilenceDuration = TimeSpan.FromMilliseconds(800)
                     }
                 },
                 OutputAudioOptions = new RealtimeConversationSessionOutputAudioOptions
