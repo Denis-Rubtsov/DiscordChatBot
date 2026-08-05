@@ -13,23 +13,51 @@ using OpenAI.Realtime;
 // "is someone still talking" logic here.
 class VoiceChatService
 {
-    private const string Instructions =
-        "Ты — Мурка, милая игривая кошкодевочка, разговариваешь голосом в Discord-канале. " +
+    private const string VoiceStyleAddendum =
+        "\n\nСейчас ты разговариваешь ГОЛОСОМ в голосовом канале Discord. " +
         "Говори по-русски (если с тобой говорят на другом языке — переходи на него), коротко и живо, " +
         "тёплым дружелюбным тоном, изредка мяукай или мурлыкай, но не в каждой реплике. Не растягивай ответы.";
 
     private readonly RealtimeClient _realtimeClient;
     private readonly string _realtimeModel;
     private readonly string _voice;
+    private readonly Func<string> _systemPromptProvider;
+    private readonly RelationshipStore _relationships;
     private readonly ILogger<VoiceChatService> _logger;
     private readonly ConcurrentDictionary<ulong, VoiceSession> _sessions = new();
 
-    public VoiceChatService(string apiKey, string realtimeModel, string voice, ILogger<VoiceChatService> logger)
+    public VoiceChatService(string apiKey, string realtimeModel, string voice,
+        Func<string> systemPromptProvider, RelationshipStore relationships, ILogger<VoiceChatService> logger)
     {
         _realtimeClient = new RealtimeClient(apiKey);
         _realtimeModel = realtimeModel;
         _voice = voice;
+        _systemPromptProvider = systemPromptProvider;
+        _relationships = relationships;
         _logger = logger;
+    }
+
+    // Голосовая Мурка получает тот же системный промпт, что и текстовая (личность + правила
+    // сервера), плюс её заметки об участниках, которые сейчас сидят в этом голосовом канале.
+    private string BuildInstructions(SocketVoiceChannel channel)
+    {
+        var sb = new System.Text.StringBuilder(_systemPromptProvider());
+        sb.Append(VoiceStyleAddendum);
+
+        var known = channel.ConnectedUsers
+            .Where(u => !u.IsBot)
+            .Select(u => (Name: u.GlobalName ?? u.Username, Relationship: _relationships.Peek(u.Id)))
+            .Where(x => x.Relationship is not null && !string.IsNullOrWhiteSpace(x.Relationship.Note))
+            .ToList();
+
+        if (known.Count > 0)
+        {
+            sb.Append("\n\nСейчас в голосовом канале с тобой эти участники, вот твои заметки о них:");
+            foreach (var (name, relationship) in known)
+                sb.Append($"\n- {name}: {relationship!.Note}");
+        }
+
+        return sb.ToString();
     }
 
     public bool IsActive(ulong guildId) => _sessions.ContainsKey(guildId);
@@ -56,7 +84,7 @@ class VoiceChatService
 
         await realtimeSession.ConfigureConversationSessionAsync(new RealtimeConversationSessionOptions
         {
-            Instructions = Instructions,
+            Instructions = BuildInstructions(channel),
             OutputModalities = { RealtimeOutputModality.Audio },
             AudioOptions = new RealtimeConversationSessionAudioOptions
             {

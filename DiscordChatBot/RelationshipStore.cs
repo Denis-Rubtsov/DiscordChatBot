@@ -42,6 +42,50 @@ class RelationshipStore
         }
     }
 
+    // Чтение без побочных эффектов (GetOrCreate накручивает счётчик сообщений).
+    public MemberRelationship? Peek(ulong userId)
+    {
+        lock (_lock)
+        {
+            return _members.TryGetValue(userId, out var member) ? member : null;
+        }
+    }
+
+    public MemberRelationship? FindByName(string name)
+    {
+        lock (_lock)
+        {
+            return _members.Values.FirstOrDefault(m => m.DisplayName.Equals(name, StringComparison.OrdinalIgnoreCase))
+                ?? _members.Values.FirstOrDefault(m => m.DisplayName.Contains(name, StringComparison.OrdinalIgnoreCase));
+        }
+    }
+
+    // Заводит запись о человеке, не трогая уже накопленную заметку.
+    public void EnsureKnown(ulong userId, string displayName, string initialNote)
+    {
+        lock (_lock)
+        {
+            if (_members.TryGetValue(userId, out var existing))
+            {
+                if (string.IsNullOrWhiteSpace(existing.Note))
+                {
+                    existing.Note = initialNote;
+                    Save();
+                }
+                return;
+            }
+
+            _members[userId] = new MemberRelationship
+            {
+                UserId = userId,
+                DisplayName = displayName,
+                Note = initialNote,
+                LastSeenUtc = DateTime.UtcNow
+            };
+            Save();
+        }
+    }
+
     public void UpdateNote(ulong userId, string note)
     {
         lock (_lock)

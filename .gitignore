@@ -14,6 +14,7 @@ DiscordChatBot/appsettings.Local.json
 
 # Runtime data (persisted relationship memory), not repo content
 DiscordChatBot/relationships.json
+DiscordChatBot/botstate.json
 
 # VPS publish output (real secrets live in out/appsettings.json there, never committed)
 out/
