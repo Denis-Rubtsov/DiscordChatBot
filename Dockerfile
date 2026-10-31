@@ -15,6 +15,6 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /out .
-# Настоящий appsettings.json (с токенами) монтируется поверх /app/appsettings.json, состояние лежит в /data
+# Токены приходят из Podman-секретов через переменные окружения, состояние лежит в /data
 USER $APP_UID
 ENTRYPOINT ["dotnet", "DiscordChatBot.dll"]
