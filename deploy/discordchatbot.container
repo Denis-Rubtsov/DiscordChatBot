@@ -1,0 +1,33 @@
+# Quadlet-юнит для rootless Podman (Bazzite/Fedora Atomic), без root и rpm-ostree.
+#
+# Первый запуск:
+#   podman build -t localhost/discordchatbot <папка репозитория>
+#   mkdir -p ~/botdata ~/botconfig ~/.config/containers/systemd
+#   cp <старый out/appsettings.json> ~/botconfig/discordchatbot.json && chmod 600 ~/botconfig/discordchatbot.json
+#   cp deploy/discordchatbot.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload && systemctl --user start discordchatbot
+#   sudo loginctl enable-linger $USER   # чтобы бот жил без входа в систему
+#
+# Обновление: podman build -t localhost/discordchatbot <папка> && systemctl --user restart discordchatbot
+# Логи: journalctl --user -u discordchatbot -f
+[Unit]
+Description=DiscordChatBot — Discord-бот
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=localhost/discordchatbotatest
+ContainerName=discordchatbot
+# Пользователь хоста становится в контейнере пользователем app (1654), так что файлы в ~/botdata остаются твоими
+UserNS=keep-id:uid=1654,gid=1654
+# :z (общая метка SELinux), потому что ~/botdata используют все три бота
+Volume=%h/botdata:/data:z
+Volume=%h/botconfig/discordchatbot.json:/app/appsettings.json:ro,Z
+Environment=TZ=Europe/Moscow
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

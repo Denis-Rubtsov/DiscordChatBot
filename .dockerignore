@@ -1,0 +1,18 @@
+**/bin/
+**/obj/
+out/
+.git/
+.idea/
+.vs/
+.claude/
+**/.DS_Store
+**/*.user
+# Секреты и состояние не должны попасть в образ
+**/appsettings.Development.json
+**/appsettings.Local.json
+**/appsettings.Production.json
+**/relationships.json
+**/botstate.json
+**/state.json
+**/state.json.tmp
+.env
