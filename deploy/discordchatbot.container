@@ -1,0 +1,41 @@
+# Quadlet-юнит для rootless Podman (Bazzite/Fedora Atomic), без root и rpm-ostree.
+#
+# Первый запуск:
+#   podman build -t localhost/discordchatbot <папка репозитория>
+#   bash deploy/import-secrets.sh <старый out/appsettings.json>   # создаёт Podman-секреты из конфига
+#   mkdir -p ~/botdata ~/.config/containers/systemd
+#   cp deploy/discordchatbot.container ~/.config/containers/systemd/
+#   systemctl --user daemon-reload && systemctl --user start discordchatbot
+#   sudo loginctl enable-linger $USER   # чтобы бот жил без входа в систему
+#
+# Обновление: podman build -t localhost/discordchatbot <папка> && systemctl --user restart discordchatbot
+# Сменить токен: снова import-secrets.sh (или printf %s 'новый' | podman secret create --replace <имя> -), затем restart
+# Логи: journalctl --user -u discordchatbot -f
+[Unit]
+Description=DiscordChatBot — Discord-бот
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=localhost/discordchatbot:latest
+ContainerName=discordchatbot
+# Пользователь хоста становится в контейнере пользователем app (1654), так что файлы в ~/botdata остаются твоими
+UserNS=keep-id:uid=1654,gid=1654
+# :z (общая метка SELinux), потому что ~/botdata используют все три бота
+Volume=%h/botdata:/data:z
+Environment=TZ=Europe/Moscow
+Environment=SystemPromptFile=/data/discordchatbot-systemprompt.txt
+Environment=RelationshipsFile=/data/relationships.json
+Environment=StateFile=/data/discordchatbot-state.json
+# на VPS голос был marin (в appsettings.json репозитория shimmer)
+Environment=OpenAI__RealtimeVoice=marin
+# Секреты из podman secret приходят как переменные окружения и перекрывают appsettings.json из образа
+Secret=discordchatbot-discord-token,type=env,target=Discord__Token
+Secret=discordchatbot-openai-apikey,type=env,target=OpenAI__ApiKey
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
